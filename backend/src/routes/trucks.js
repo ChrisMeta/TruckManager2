@@ -2,6 +2,7 @@ import express from 'express';
 import { requireAuth } from '../config/passport.js';
 import Truck from '../models/Truck.js';
 import Profile from '../models/Profile.js';
+import Assignment from '../models/Assignment.js';
 import { deriveStats, defaultCapabilities, ENGINE_LIBRARY, OPTION_SETS } from '../services/derive.js';
 import { findCatalogItem } from './catalog.js';
 
@@ -69,6 +70,7 @@ router.post('/buy', requireAuth, async (req,res)=>{
     speedKph: data.speedKph || 80,
     emptyWeightKg: 5000,
     cargoVolumeM3: 20,
+    price: price, // Store the original purchase price
     config: {
       engineId: def.engineId || null,
       induction: def.induction || 'na',
@@ -138,6 +140,52 @@ router.post('/:id/config', requireAuth, async (req,res)=>{
   profile.cash -= cost;
   await Promise.all([truck.save(), profile.save()]);
   res.json({ ok:true, cost, truck });
+});
+
+// Add this route to your existing trucks router
+
+router.post('/:truckId/sell', requireAuth, async (req, res) => {
+  try {
+    const { truckId } = req.params;
+    
+    // Find the truck and verify ownership
+    const truck = await Truck.findOne({ _id: truckId, userId: req.user._id });
+    if (!truck) {
+      return res.status(404).json({ error: 'Truck not found or not owned by user' });
+    }
+
+    // Check if truck is currently assigned to a contract
+    const activeAssignment = await Assignment.findOne({ 
+      truckId: truck._id, 
+      status: 'in_progress' 
+    });
+    
+    if (activeAssignment) {
+      return res.status(400).json({ error: 'Cannot sell truck while it has an active assignment' });
+    }
+
+    // Calculate sell price (50% of original price)
+    const sellPrice = Math.floor((truck.price || 0) * 0.5);
+
+    // Delete the truck and update user's cash
+    await Truck.deleteOne({ _id: truckId });
+    
+    // Update user's profile cash
+    await Profile.updateOne(
+      { userId: req.user._id },
+      { $inc: { cash: sellPrice } }
+    );
+
+    res.json({ 
+      success: true, 
+      sellPrice,
+      message: `Sold ${truck.brand} ${truck.model} for €${sellPrice.toLocaleString()}` 
+    });
+
+  } catch (err) {
+    console.error('[POST /trucks/:truckId/sell]', err);
+    res.status(500).json({ error: 'Failed to sell truck', detail: String(err?.message || err) });
+  }
 });
 
 export default router;

@@ -9,8 +9,10 @@ export default function Garage({ state, onChanged }){
   const [opts, setOpts] = useState(null);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
+  const [selling, setSelling] = useState(null); // truckId being sold
   const [error, setError] = useState('');
   const [lastCost, setLastCost] = useState(null);
+  const [sellMessage, setSellMessage] = useState('');
 
   async function loadOptions(truckId){
     setError(''); setOpts(null); setLastCost(null);
@@ -28,6 +30,7 @@ export default function Garage({ state, onChanged }){
     setTab('Performance');
     loadOptions(t._id);
   }
+  
   function update(k, v){ setForm(prev => ({ ...prev, [k]: v })); }
 
   function estimateCost(prev){
@@ -55,8 +58,32 @@ export default function Garage({ state, onChanged }){
     }finally{ setSaving(false); }
   }
 
+  async function sellTruck(truckId){
+    setSelling(truckId); setError(''); setSellMessage('');
+    try{
+      const { data } = await api.post(`/trucks/${truckId}/sell`);
+      setSellMessage(data.message);
+      await onChanged();
+    }catch(e){
+      setError(e.response?.data?.error || e.message);
+    }finally{ setSelling(null); }
+  }
+
+  // Check if truck has active assignment
+  function hasActiveAssignment(truckId) {
+    return state?.assignments?.some(a => a.truckId === truckId && a.status === 'in_progress');
+  }
+
+  // Calculate estimated sell price (50% of original price)
+  function getSellPrice(truck) {
+    return Math.floor((truck.price || 0) * 0.5);
+  }
+
   return (
     <div className="space-y-2">
+      {error && <div className="text-red-400 text-sm">{error}</div>}
+      {sellMessage && <div className="text-green-400 text-sm">{sellMessage}</div>}
+      
       {state?.trucks?.map(t => (
         <div key={t._id} className="border border-white/10 rounded-xl p-3">
           <div className="flex items-center justify-between gap-3">
@@ -68,9 +95,20 @@ export default function Garage({ state, onChanged }){
               <div className="text-sm text-gray-400">
                 Power {t.enginePowerKw}kW | Speed {t.speedKph} km/h | Empty {t.emptyWeightKg||'-'} kg | Cargo {t.cargoVolumeM3||'-'} m³
               </div>
+              <div className="text-sm text-gray-300">
+                Sell value: €{getSellPrice(t).toLocaleString()} 
+                {hasActiveAssignment(t._id) && <span className="text-yellow-400 ml-2">(Active assignment)</span>}
+              </div>
             </div>
             <div className="flex gap-2">
               <button className="btn" onClick={()=>startEdit(t)}>Modify</button>
+              <button 
+                className="btn btn-danger" 
+                onClick={()=>sellTruck(t._id)} 
+                disabled={selling === t._id || hasActiveAssignment(t._id)}
+              >
+                {selling === t._id ? 'Selling…' : 'Sell'}
+              </button>
             </div>
           </div>
 
@@ -81,8 +119,6 @@ export default function Garage({ state, onChanged }){
                   <div className="flex gap-2 mb-3">
                     {SUBTABS.map(s => <button key={s} className={`tab ${tab===s?'tab-active':''}`} onClick={()=>setTab(s)}>{s}</button>)}
                   </div>
-
-                  {error && <div className="text-red-400 text-sm mb-2">{error}</div>}
 
                   {tab==='Performance' && (
                     <div className="grid grid-cols-2 gap-3">

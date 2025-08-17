@@ -34,7 +34,8 @@ const TruckSchema = new Schema({
     tire: { type:String, default: 'allseason' },
     engineLabel: { type:String, default: '' }
   },
-  createdAt: { type:Date, default: Date.now }
+  createdAt: { type:Date, default: Date.now },
+  price: { type: Number, default: 0 }, // Original purchase price
 }, { versionKey:false });
 
 export default models.Truck || model('Truck', TruckSchema);

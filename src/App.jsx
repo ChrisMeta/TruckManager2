@@ -9,13 +9,23 @@ import Contracts from './components/tabs/Contracts';
 import Store from './components/tabs/Store';
 import LoginForm from './components/auth/LoginForm';
 import RegisterForm from './components/auth/RegisterForm';
+import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
 
-const TABS = ['Headquarter','Shop','Garage','Contracts','Store'];
+const TABS = ['headquarter', 'shop', 'garage', 'contracts', 'store'];
 
 export default function App(){
+  return (
+    <LanguageProvider>
+      <AppContent />
+    </LanguageProvider>
+  );
+}
+
+function AppContent() {
+  const { t, language, setLanguage } = useLanguage();
   const [user, setUser] = useState(null);
   const [state, setState] = useState({ profile:null, trucks:[], assignments:[], contracts:[], stations:[] });
-  const [tab, setTab] = useState('Headquarter');
+  const [tab, setTab] = useState('headquarter');
   const [loading, setLoading] = useState(true);
   const [previewRoute, setPreviewRoute] = useState(null); // [{lat,lng},...]
   const [placingHQ, setPlacingHQ] = useState(false);
@@ -52,7 +62,7 @@ export default function App(){
 
   const hq = state?.stations?.find(s => s.type === 'hq');
 
-  if (loading) return <div className="min-h-screen grid place-items-center">Loading…</div>;
+  if (loading) return <div className="min-h-screen grid place-items-center">{t('loading')}</div>;
 
   if (!user){
     return (
@@ -61,7 +71,7 @@ export default function App(){
           <div className="card">
             <AuthSwitcher onLogin={()=>setUser({})}/>
           </div>
-          <p className="text-sm text-gray-400 text-center">Trucking Simulator — Node Backend</p>
+          <p className="text-sm text-gray-400 text-center">{t('truckingSimulator')}</p>
         </div>
       </div>
     );
@@ -82,14 +92,32 @@ export default function App(){
       </div>
       <div className="col-span-4 p-3 space-y-3 overflow-y-auto">
         <div className="card">
-          <div className="flex gap-2">
-            {TABS.map(t => (
-              <button key={t} className={`tab ${tab===t?'tab-active':''}`} onClick={()=>setTab(t)}>{t}</button>
-            ))}
+          <div className="flex justify-between items-center mb-3">
+            <div className="flex gap-2">
+              {TABS.map(tabKey => (
+                <button key={tabKey} className={`tab ${tab===tabKey?'tab-active':''}`} onClick={()=>setTab(tabKey)}>
+                  {t(tabKey)}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-1">
+              <button 
+                className={`btn btn-sm ${language === 'en' ? 'bg-white/10' : ''}`} 
+                onClick={() => setLanguage('en')}
+              >
+                EN
+              </button>
+              <button 
+                className={`btn btn-sm ${language === 'de' ? 'bg-white/10' : ''}`} 
+                onClick={() => setLanguage('de')}
+              >
+                DE
+              </button>
+            </div>
           </div>
         </div>
 
-        {tab === 'Headquarter' && (
+        {tab === 'headquarter' && (
           <div className="card">
             <Headquarter
               state={state}
@@ -100,9 +128,9 @@ export default function App(){
             />
           </div>
         )}
-        {tab === 'Shop' && <div className="card"><Shop state={state} onBought={async()=>{ setPreviewRoute(null); await refresh(); }} /></div>}
-        {tab === 'Garage' && <div className="card"><Garage state={state} onChanged={async()=>{ await refresh(); }} /></div>}
-        {tab === 'Contracts' && (
+        {tab === 'shop' && <div className="card"><Shop state={state} onBought={async()=>{ setPreviewRoute(null); await refresh(); }} /></div>}
+        {tab === 'garage' && <div className="card"><Garage state={state} onChanged={async()=>{ await refresh(); }} /></div>}
+        {tab === 'contracts' && (
           <div className="card">
             <Contracts
               state={state}
@@ -111,7 +139,7 @@ export default function App(){
             />
           </div>
         )}
-        {tab === 'Store' && <div className="card"><Store state={state} onChanged={refresh} /></div>}
+        {tab === 'store' && <div className="card"><Store state={state} onChanged={refresh} /></div>}
       </div>
     </div>
   );
@@ -119,11 +147,12 @@ export default function App(){
 
 function AuthSwitcher({ onLogin }){
   const [mode, setMode] = useState('login');
+  const { t } = useLanguage();
   return (
     <div>
       <div className="flex gap-2 mb-4">
-        <button className={mode==='login'?'btn bg-white/10':'btn'} onClick={()=>setMode('login')}>Login</button>
-        <button className={mode==='register'?'btn bg-white/10':'btn'} onClick={()=>setMode('register')}>Register</button>
+        <button className={mode==='login'?'btn bg-white/10':'btn'} onClick={()=>setMode('login')}>{t('login')}</button>
+        <button className={mode==='register'?'btn bg-white/10':'btn'} onClick={()=>setMode('register')}>{t('register')}</button>
       </div>
       {mode==='login'
         ? <LoginForm onLoggedIn={onLogin} />

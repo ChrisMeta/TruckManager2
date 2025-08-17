@@ -1,20 +1,40 @@
 import React, { useState } from 'react';
 import { api } from '../../api/client';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 export default function Contracts({ state, onChanged, onPreview }){
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [openRow, setOpenRow] = useState(null); // contractId expanded inline
+  const [tab, setTab] = useState('open');
   const [error, setError] = useState('');
+
+  const openContracts = state?.contracts?.filter(c => c.status === 'open') || [];
+  const activeAssignments = state?.assignments?.filter(a => a.status === 'in_progress') || [];
+  const completedContracts = state?.contracts?.filter(c => c.status === 'completed') || [];
 
   async function generate(){
     setError('');
-    setLoading(true);
+    setGenerating(true);
     try {
       await api.post('/contracts/generate');
       await onChanged();
     } catch(e){
       setError(e.response?.data?.error || e.message);
-    } finally { setLoading(false); }
+    } finally { setGenerating(false); }
+  }
+
+  async function generateContract(){
+    setGenerating(true);
+    try{
+      await api.post('/contracts/generate');
+      await onChanged();
+    }catch(e){
+      console.error(e);
+    }finally{
+      setGenerating(false);
+    }
   }
 
   async function previewRoute(contractId){
@@ -40,6 +60,15 @@ export default function Contracts({ state, onChanged, onPreview }){
     } finally { setLoading(false); }
   }
 
+  async function assignContract(contractId, truckId){
+    try{
+      await api.post(`/contracts/${contractId}/assign`, { truckId });
+      await onChanged();
+    }catch(e){
+      console.error(e);
+    }
+  }
+
   async function instantComplete(contract){
     setError(''); setLoading(true);
     try{
@@ -62,62 +91,73 @@ export default function Contracts({ state, onChanged, onPreview }){
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="h">Contracts</div>
-        <div className="flex gap-2">
-          <button className="btn" onClick={()=>onPreview && onPreview(null)}>Clear Preview</button>
-          <button className="btn" onClick={generate} disabled={loading}>{loading ? 'Generating…' : 'Generate'}</button>
-        </div>
+      <div className="flex gap-2">
+        <button className={`tab ${tab==='open'?'tab-active':''}`} onClick={()=>setTab('open')}>{t('openContracts')}</button>
+        <button className={`tab ${tab==='active'?'tab-active':''}`} onClick={()=>setTab('active')}>{t('activeAssignments')}</button>
+        <button className={`tab ${tab==='completed'?'tab-active':''}`} onClick={()=>setTab('completed')}>{t('completedContracts')}</button>
       </div>
-      {error && <div className="text-red-400 text-sm">{error}</div>}
 
-      <div className="space-y-2">
-        {state?.contracts?.map(c => (
-          <div key={c._id} className="border border-white/10 rounded-xl">
-            <div className="p-3 grid grid-cols-8 items-center gap-2">
-              <div className="col-span-5">
-                <div className="font-medium">{c.origin?.name} → {c.destination?.name}</div>
-                <div className="text-sm text-gray-400">
-                  {c.cargoType} • {c.distanceKm?.toFixed?.(1)} km • {c.weightTons}t • {c.volumeM3} m³ • €{c.payout}
-                  <span className="ml-2 text-accent">{c.status}</span>
-                  {c.status==='completed' && !c.paid && <span className="ml-2 text-yellow-300">Unpaid</span>}
-                  {c.paid && <span className="ml-2 text-green-400">Paid</span>}
+      {tab === 'open' && (
+        <div className="space-y-2">
+          <button className="btn btn-primary w-full" onClick={generateContract} disabled={generating}>
+            {generating ? t('generating') : t('generateContract')}
+          </button>
+          {openContracts.map(c => (
+            <div key={c._id} className="border border-white/10 rounded-xl p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">{t('from')}: {c.origin?.name} → {t('to')}: {c.destination?.name}</div>
+                  <div className="text-sm text-gray-400">{t('cargo')}: {c.cargoType} • {t('distance')}: {c.distanceKm?.toFixed(1)}km</div>
+                  <div className="text-sm text-gray-300">{t('reward')}: €{c.payout?.toLocaleString()} • {t('deadline')}: {new Date(c.deadline).toLocaleDateString()}</div>
                 </div>
-              </div>
-              <div className="col-span-3 flex justify-end gap-2">
-                <button className="btn" onClick={()=>previewRoute(c._id)}>Preview</button>
-                {c.status==='open' && (
-                  <button className="btn btn-primary" onClick={()=>setOpenRow(openRow===c._id?null:c._id)}>
-                    {openRow===c._id?'Cancel':'Accept'}
-                  </button>
-                )}
-                {c.status==='in_progress' && (
-                  <button className="btn" onClick={()=>instantComplete(c)}>Instant Complete ★</button>
-                )}
-                {c.status==='completed' && !c.paid && (
-                  <button className="btn btn-primary" onClick={()=>collect(c._id)}>Collect €</button>
-                )}
+                <div className="flex gap-2">
+                  <button className="btn" onClick={() => previewRoute(c._id)}>{t('preview')}</button>
+                  <select className="btn" onChange={(e) => e.target.value && assignContract(c._id, e.target.value)}>
+                    <option value="">{t('assign')}</option>
+                    {state?.trucks?.filter(t => t.status === 'idle').map(t => (
+                      <option key={t._id} value={t._id}>{t.brand} {t.model}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
+          ))}
+          {openContracts.length === 0 && <div className="text-sm text-gray-400">{t('noOpenContracts')}</div>}
+        </div>
+      )}
 
-            {openRow === c._id && (
-              <div className="border-t border-white/10 p-3">
-                <div className="h mb-2">Select Truck</div>
-                <div className="space-y-2 max-h-72 overflow-auto">
-                  {state?.trucks?.length ? state.trucks.map(t => (
-                    <div key={t._id} className="border border-white/10 rounded-xl p-2 flex items-center justify-between">
-                      <div>{t.brand} {t.model} <span className="text-xs text-gray-400">({t.speedKph} km/h)</span></div>
-                      <button className="btn btn-primary" onClick={()=>accept(c._id, t._id)} disabled={loading}>
-                        {loading ? 'Routing…' : 'Assign'}
-                      </button>
-                    </div>
-                  )) : <div className="text-sm text-gray-400">No trucks available.</div>}
+      {tab === 'active' && (
+        <div className="space-y-2">
+          {activeAssignments.map(a => {
+            const contract = state?.contracts?.find(c => c._id === a.contractId);
+            const truck = state?.trucks?.find(t => t._id === a.truckId);
+            return (
+              <div key={a._id} className="border border-white/10 rounded-xl p-3">
+                <div className="font-medium">{contract?.origin?.name} → {contract?.destination?.name}</div>
+                <div className="text-sm text-gray-400">{t('truck')}: {truck?.brand} {truck?.model}</div>
+                <div className="text-sm text-gray-300">{t('progress')}: {(a.progress * 100).toFixed(1)}%</div>
+                <div className="w-full bg-gray-700 rounded-full h-2 mt-2">
+                  <div className="bg-blue-600 h-2 rounded-full" style={{width: `${a.progress * 100}%`}}></div>
                 </div>
               </div>
-            )}
-          </div>
-        ))}
-      </div>
+            );
+          })}
+          {activeAssignments.length === 0 && <div className="text-sm text-gray-400">{t('noActiveAssignments')}</div>}
+        </div>
+      )}
+
+      {tab === 'completed' && (
+        <div className="space-y-2">
+          {completedContracts.map(c => (
+            <div key={c._id} className="border border-white/10 rounded-xl p-3">
+              <div className="font-medium">{c.origin?.name} → {c.destination?.name}</div>
+              <div className="text-sm text-gray-400">{t('cargo')}: {c.cargoType} • {t('reward')}: €{c.payout?.toLocaleString()}</div>
+              <div className="text-sm text-green-400">{t('status')}: {c.status}</div>
+            </div>
+          ))}
+          {completedContracts.length === 0 && <div className="text-sm text-gray-400">{t('noCompletedContracts')}</div>}
+        </div>
+      )}
     </div>
   );
 }

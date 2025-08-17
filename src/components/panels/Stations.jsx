@@ -1,6 +1,9 @@
 import React from 'react';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 export default function Stations({ state }){
+  const { t } = useLanguage();
+  
   return (
     <div className="space-y-2">
       {state?.stations?.map(s => (

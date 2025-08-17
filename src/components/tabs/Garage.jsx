@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../api/client';
 
-const SUBTABS = ['Performance','Chassis','Cargo','Tyres/Gearbox'];
+const SUBTABS = ['Performance', 'Chassis', 'Cargo', 'Tyres/Gearbox', 'Maintenance'];
 
 export default function Garage({ state, onChanged }){
   const [open, setOpen] = useState(null); // truckId editing
@@ -13,6 +13,8 @@ export default function Garage({ state, onChanged }){
   const [error, setError] = useState('');
   const [lastCost, setLastCost] = useState(null);
   const [sellMessage, setSellMessage] = useState('');
+  const [maintenanceData, setMaintenanceData] = useState(null);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
 
   async function loadOptions(truckId){
     setError(''); setOpts(null); setLastCost(null);
@@ -25,9 +27,22 @@ export default function Garage({ state, onChanged }){
     }
   }
 
+  async function loadMaintenanceData(truckId){
+    setMaintenanceLoading(true);
+    try{
+      const { data } = await api.get(`/trucks/${truckId}/maintenance`);
+      setMaintenanceData(data);
+    }catch(e){
+      setError(e.response?.data?.error || e.message);
+    }finally{
+      setMaintenanceLoading(false);
+    }
+  }
+
   function startEdit(t){
     setOpen(t._id);
     setTab('Performance');
+    setMaintenanceData(null); // Reset maintenance data when opening new truck
     loadOptions(t._id);
   }
   
@@ -69,14 +84,50 @@ export default function Garage({ state, onChanged }){
     }finally{ setSelling(null); }
   }
 
+  async function performMaintenance(truckId, type){
+    setMaintenanceLoading(true); setError('');
+    try{
+      const { data } = await api.post(`/trucks/${truckId}/maintenance`, { type });
+      setSellMessage(data.message);
+      await loadMaintenanceData(truckId);
+      await onChanged(); // Refresh truck data
+    }catch(e){
+      setError(e.response?.data?.error || e.message);
+    }finally{
+      setMaintenanceLoading(false);
+    }
+  }
+
   // Check if truck has active assignment
   function hasActiveAssignment(truckId) {
     return state?.assignments?.some(a => a.truckId === truckId && a.status === 'in_progress');
   }
 
-  // Calculate estimated sell price (50% of original price)
+  // Calculate estimated sell price with depreciation
   function getSellPrice(truck) {
-    return Math.floor((truck.price || 0) * 0.5);
+    const defaultPrices = {
+      'van': 25000,
+      'box': 45000,
+      'rigid': 65000,
+      'semi': 85000
+    };
+    
+    const originalPrice = truck.price || defaultPrices[truck.category] || 50000;
+    const baseValue = Math.floor(originalPrice * 0.5); // 50% base resale value
+    
+    // Calculate depreciation: 30% per 100,000km
+    const odometerKm = truck.odometerKm || 0;
+    const depreciationFactor = Math.max(0.1, 1 - (odometerKm / 100000) * 0.3); // Minimum 10% of base value
+    
+    return Math.floor(baseValue * depreciationFactor);
+  }
+
+  // Handle tab change to load maintenance data when needed
+  function handleTabChange(newTab) {
+    setTab(newTab);
+    if (newTab === 'Maintenance' && open && !maintenanceData && !maintenanceLoading) {
+      loadMaintenanceData(open);
+    }
   }
 
   return (
@@ -89,11 +140,9 @@ export default function Garage({ state, onChanged }){
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="font-medium">{t.brand} {t.model} <span className="text-xs text-gray-400">({t.category})</span></div>
+              
               <div className="text-sm text-gray-400">
-                Engine {t.config?.engineLabel || `${t.enginePowerKw}kW`} • Induction {t.config?.induction || '-'} • WB {t.config?.wheelbase || '-'} • Body {t.config?.body || '-'}
-              </div>
-              <div className="text-sm text-gray-400">
-                Power {t.enginePowerKw}kW | Speed {t.speedKph} km/h | Empty {t.emptyWeightKg||'-'} kg | Cargo {t.cargoVolumeM3||'-'} m³
+                Odometer: {(t.odometerKm || 0).toFixed(1)} km | Wear: {((t.wear || 0) * 100).toFixed(1)}%
               </div>
               <div className="text-sm text-gray-300">
                 Sell value: €{getSellPrice(t).toLocaleString()} 
@@ -101,7 +150,7 @@ export default function Garage({ state, onChanged }){
               </div>
             </div>
             <div className="flex gap-2">
-              <button className="btn" onClick={()=>startEdit(t)}>Modify</button>
+              <button className="btn" onClick={()=>startEdit(t)}>Mechanic</button>
               <button 
                 className="btn btn-danger" 
                 onClick={()=>sellTruck(t._id)} 
@@ -117,7 +166,7 @@ export default function Garage({ state, onChanged }){
               {!opts ? <div className="text-sm text-gray-400">Loading options…</div> : (
                 <>
                   <div className="flex gap-2 mb-3">
-                    {SUBTABS.map(s => <button key={s} className={`tab ${tab===s?'tab-active':''}`} onClick={()=>setTab(s)}>{s}</button>)}
+                    {SUBTABS.map(s => <button key={s} className={`tab ${tab===s?'tab-active':''}`} onClick={()=>handleTabChange(s)}>{s}</button>)}
                   </div>
 
                   {tab==='Performance' && (
@@ -143,6 +192,70 @@ export default function Garage({ state, onChanged }){
                     <div className="grid grid-cols-2 gap-3">
                       <Select label="Gearbox" value={form.gearbox} onChange={v=>update('gearbox', v)} options={opts.options.gearbox.map(o=>[o.id, o.label])} />
                       <Select label="Tyre" value={form.tire} onChange={v=>update('tire', v)} options={opts.options.tire.map(o=>[o.id, o.label])} />
+                    </div>
+                  )}
+
+                  {tab==='Maintenance' && (
+                    <div className="space-y-3">
+                      {maintenanceLoading ? (
+                        <div className="text-sm text-gray-400">Loading maintenance data...</div>
+                      ) : maintenanceData ? (
+                        <>
+                          <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div>
+                              <div className="font-medium mb-2">Vehicle Status</div>
+                              <div>Odometer: {(maintenanceData.odometerKm || 0).toFixed(1)} km</div>
+                              <div>Wear Level: {((maintenanceData.wear || 0) * 100).toFixed(1)}%</div>
+                              <div className={(maintenanceData.oilChangeOverdue || false) ? 'text-red-400' : 'text-green-400'}>
+                                Oil Change: {(maintenanceData.kmSinceOilChange || 0).toFixed(1)} km ago
+                                {(maintenanceData.oilChangeOverdue || false) && ' (OVERDUE)'}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="font-medium mb-2">Maintenance Options</div>
+                              <div className="space-y-2">
+                                <button 
+                                  className="btn btn-sm w-full" 
+                                  onClick={() => performMaintenance(t._id, 'oil_change')}
+                                  disabled={maintenanceLoading}
+                                >
+                                  Oil Change (€{(maintenanceData.costs?.oilChange || 0)})
+                                </button>
+                                <button 
+                                  className="btn btn-sm w-full" 
+                                  onClick={() => performMaintenance(t._id, 'basic')}
+                                  disabled={maintenanceLoading}
+                                >
+                                  Basic Service (€{(maintenanceData.costs?.basicMaintenance || 0)})
+                                </button>
+                                <button 
+                                  className="btn btn-sm w-full" 
+                                  onClick={() => performMaintenance(t._id, 'major')}
+                                  disabled={maintenanceLoading}
+                                >
+                                  Major Service (€{(maintenanceData.costs?.majorService || 0)})
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {maintenanceData.records && maintenanceData.records.length > 0 && (
+                            <div>
+                              <div className="font-medium mb-2">Recent Maintenance</div>
+                              <div className="space-y-1 max-h-32 overflow-y-auto">
+                                {maintenanceData.records.slice(-5).reverse().map((record, idx) => (
+                                  <div key={idx} className="text-xs text-gray-400 flex justify-between">
+                                    <span>{record.type.replace('_', ' ')} at {(record.odometerKm || 0).toFixed(1)} km</span>
+                                    <span>{new Date(record.date).toLocaleDateString()}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-sm text-gray-400">Failed to load maintenance data</div>
+                      )}
                     </div>
                   )}
 

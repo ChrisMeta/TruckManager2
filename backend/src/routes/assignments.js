@@ -7,10 +7,10 @@ import Profile from '../models/Profile.js';
 
 const router = express.Router();
 
-function remainingKm(assignment, contract){
-  const total = contract.distanceKm || 0;
-  const done = (assignment.progress || 0) * total;
-  return Math.max(0, total - done);
+function remainingKm(assignment, contract) {
+  const totalKm = contract.distanceKm || 0;
+  const completedKm = totalKm * (assignment.progress || 0);
+  return Math.max(0, totalKm - completedKm);
 }
 
 router.post('/:id/instant-complete', requireAuth, async (req,res)=>{
@@ -30,6 +30,16 @@ router.post('/:id/instant-complete', requireAuth, async (req,res)=>{
   const gemCost = Math.max(1, Math.ceil(kmLeft / 50)); // 1★ per 50km remaining
   if (profile.premium < gemCost) return res.status(400).json({ error:`Not enough ★ (need ${gemCost}, have ${profile.premium})` });
 
+  // Add remaining distance to odometer
+  truck.odometerKm = (truck.odometerKm || 0) + kmLeft;
+  
+  // Calculate wear based on the new odometer value
+  let wearFactor = 0.3 / 100000; // 30% per 100,000km
+  if (truck.odometerKm % 40000 === 0) {
+    wearFactor *= 10; // x10 wear if oil change is due
+  }
+  truck.wear = Math.min(1, (truck.odometerKm * wearFactor));
+  
   profile.premium -= gemCost;
   a.progress = 1;
   a.status = 'completed';
@@ -37,9 +47,10 @@ router.post('/:id/instant-complete', requireAuth, async (req,res)=>{
   truck.assignedAssignmentId = null;
   contract.status = 'completed';
   contract.paid = false; // require explicit collect
+  
   await Promise.all([profile.save(), a.save(), truck.save(), contract.save()]);
 
-  res.json({ ok:true, gemCost, payout: contract.payout });
+  res.json({ ok:true, gemCost, payout: contract.payout, kmAdded: kmLeft });
 });
 
 export default router;

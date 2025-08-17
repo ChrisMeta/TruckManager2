@@ -7,35 +7,46 @@ const TruckSchema = new Schema({
   brand: String,
   model: String,
   category: { type:String, enum:['van','box','rigid','semi'] },
-  fuelType: { type:String, enum:['diesel','gasoline','electric'], default:'diesel' },
+  fuelType: { type:String, enum:['diesel','gasoline','electric'] },
   enginePowerKw: { type:Number, default:150 },
-  engineLevel: { type:Number, default:0 },
-  bodyType: { type:String, default:'standard' },
-  wheelbaseM: { type:Number, default:4.0 },
-  fuelCapacityL: { type:Number, default:150 },
-  batteryKwh: { type:Number, default:0 },
-  currentEnergy: { type:Number, default:150 },
-  wear: { type:Number, default:0 },
-  maintenanceDueKm: { type:Number, default:20000 },
-  odometerKm: { type:Number, default:0 },
-  status: { type:String, enum:['idle','enroute','refueling','maintenance'], default:'idle' },
   speedKph: { type:Number, default:80 },
   emptyWeightKg: { type:Number, default: 5000 },
   cargoVolumeM3: { type:Number, default: 20 },
-  location: { lat: { type:Number, default:52.52 }, lng: { type:Number, default:13.405 } },
+  fuelCapacityL: { type:Number, default:150 },
+  batteryKwh: { type:Number, default:0 },
+  currentEnergy: { type:Number, default:150 },
+  price: { type: Number, default: 0 },
+  odometerKm: { type:Number, default:0 },
+  wear: { type:Number, default:0, min:0, max:1 },
+  lastOilChangeKm: { type:Number, default:0 }, // Track when oil was last changed
+  maintenanceStatus: { 
+    type: String, 
+    enum: ['idle', 'small_maintenance', 'full_restoration'], 
+    default: 'idle' 
+  },
+  maintenanceEndTime: { type: Date, default: null }, // When maintenance will be complete
+  status: { type:String, enum:['idle','enroute','maintenance'], default:'idle' },
   assignedAssignmentId: { type: Schema.Types.ObjectId, ref:'Assignment', default:null },
-  refuelUntil: { type: Date, default: null },
   config: {
-    engineId: { type:String, default: null },
+    engineId: String,
+    engineLabel: String,
     induction: { type:String, default: 'na' },
     wheelbase: { type:String, default: 'standard' },
-    body: { type:String, default: null },
+    body: String,
     gearbox: { type:String, default: 'standard' },
-    tire: { type:String, default: 'allseason' },
-    engineLabel: { type:String, default: '' }
+    tire: { type:String, default: 'allseason' }
   },
   createdAt: { type:Date, default: Date.now },
-  price: { type: Number, default: 0 }, // Original purchase price
+  maintenanceRecords: [{
+    type: { type: String, required: true },
+    date: { type: Date, required: true },
+    cost: { type: Number, required: true },
+    odometerKm: { type: Number, required: true }
+  }],
+  location: {
+    lat: { type: Number, required: true },
+    lng: { type: Number, required: true }
+  }
 }, { versionKey:false });
 
 export default models.Truck || model('Truck', TruckSchema);

@@ -3,6 +3,7 @@ import { requireAuth } from '../config/passport.js';
 import Truck from '../models/Truck.js';
 import Profile from '../models/Profile.js';
 import Assignment from '../models/Assignment.js';
+import Station from '../models/Station.js'; // Added import for Station model
 import { deriveStats, defaultCapabilities, ENGINE_LIBRARY, OPTION_SETS } from '../services/derive.js';
 import { findCatalogItem } from './catalog.js';
 
@@ -41,58 +42,42 @@ router.get('/:id/options', requireAuth, async (req,res)=>{
   res.json({ options: { engine, induction, wheelbase, body, gearbox, tire }, current });
 });
 
-router.post('/buy', requireAuth, async (req,res)=>{
-  const data = req.body;
-  const price = Number(data.price || 0);
-  const pay = data.paymentMethod || 'cash'; // 'cash' | 'premium'
-  let profile = await Profile.findOne({ userId: req.user._id });
-  if (!profile) profile = await Profile.create({ userId: req.user._id, cash: 100000, premium:10, level:1, xp:0 });
+router.post('/buy', requireAuth, async (req, res) => {
+  try {
+    const { brand, model, category, fuelType, enginePowerKw, speedKph, emptyWeightKg, cargoVolumeM3, fuelCapacityL, batteryKwh, price, paymentMethod } = req.body;
+    
+    // Get user's HQ location for default truck placement
+    const hqStation = await Station.findOne({ userId: req.user._id, type: 'hq' });
+    const defaultLocation = hqStation ? 
+      { lat: hqStation.lat, lng: hqStation.lng } : // Fixed: direct access to lat/lng
+      { lat: 52.5200, lng: 13.4050 };
+    
+    const truck = new Truck({
+      userId: req.user._id, // Fixed: consistent _id usage
+      brand,
+      model,
+      category,
+      fuelType,
+      enginePowerKw,
+      speedKph,
+      emptyWeightKg,
+      cargoVolumeM3,
+      fuelCapacityL,
+      batteryKwh,
+      price,
+      location: defaultLocation,
+      currentEnergy: fuelType === 'electric' ? batteryKwh : fuelCapacityL,
+      status: 'idle',
+      wear: 0,
+      odometerKm: 0,
+      lastOilChangeKm: 0
+    });
 
-  if (pay === 'cash'){
-    if (profile.cash < price) return res.status(400).json({ error:`Not enough cash (have €${profile.cash}, need €${price})` });
-  } else if (pay === 'premium'){
-    const gemsNeeded = Math.ceil(price / GEM_TO_EURO);
-    if (profile.premium < gemsNeeded) return res.status(400).json({ error:`Not enough ★ (need ${gemsNeeded}, have ${profile.premium})` });
-    profile.premium -= gemsNeeded;
-  } else {
-    return res.status(400).json({ error:'Unknown payment method' });
+    await truck.save();
+    res.json({ message: 'Truck purchased successfully', truck });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
-
-  const base = findCatalogItem(data.brand, data.model);
-  const def = base?.defaultConfig || {};
-  const created = await Truck.create({
-    userId: req.user._id,
-    brand: data.brand, model: data.model, category: data.category, fuelType: data.fuelType,
-    enginePowerKw: data.enginePowerKw || 150, engineLevel: 0,
-    bodyType: data.bodyType || 'standard', wheelbaseM: data.wheelbaseM || 4.0,
-    fuelCapacityL: data.fuelCapacityL || 150, batteryKwh: data.batteryKwh || 0,
-    currentEnergy: data.fuelType === 'electric' ? (data.batteryKwh || 0) : (data.fuelCapacityL || 150),
-    speedKph: data.speedKph || 80,
-    emptyWeightKg: 5000,
-    cargoVolumeM3: 20,
-    price: price, // Store the original purchase price
-    config: {
-      engineId: def.engineId || null,
-      induction: def.induction || 'na',
-      wheelbase: def.wheelbase || 'standard',
-      body: def.body || null,
-      gearbox: def.gearbox || 'standard',
-      tire: def.tire || 'allseason'
-    }
-  });
-
-  const stats = deriveStats(created.category, { speedKph: created.speedKph, enginePowerKw: created.enginePowerKw, emptyWeightKg: created.emptyWeightKg, cargoVolumeM3: created.cargoVolumeM3 }, created.config);
-  created.enginePowerKw = stats.enginePowerKw;
-  created.speedKph = stats.speedKph;
-  created.emptyWeightKg = stats.emptyWeightKg;
-  created.cargoVolumeM3 = stats.cargoVolumeM3;
-  created.config.engineLabel = stats.engineLabel;
-  await created.save();
-
-  if (pay === 'cash') { profile.cash -= price; }
-  // premium already deducted above
-  await profile.save();
-  res.json(created);
 });
 
 router.post('/:id/config', requireAuth, async (req,res)=>{
@@ -142,8 +127,6 @@ router.post('/:id/config', requireAuth, async (req,res)=>{
   res.json({ ok:true, cost, truck });
 });
 
-// Add this route to your existing trucks router
-
 router.post('/:truckId/sell', requireAuth, async (req, res) => {
   try {
     const { truckId } = req.params;
@@ -164,8 +147,25 @@ router.post('/:truckId/sell', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Cannot sell truck while it has an active assignment' });
     }
 
-    // Calculate sell price (50% of original price)
-    const sellPrice = Math.floor((truck.price || 0) * 0.5);
+    // Calculate sell price with depreciation
+    const defaultPrices = {
+      'van': 25000,
+      'box': 45000,
+      'rigid': 65000,
+      'semi': 85000
+    };
+    
+    const originalPrice = truck.price || defaultPrices[truck.category] || 50000;
+    const baseValue = Math.floor(originalPrice * 0.5); // 50% base resale value
+    
+    // Calculate depreciation: 30% per 100,000km
+    const odometerKm = truck.odometerKm || 0;
+    const depreciationFactor = Math.max(0.1, 1 - (odometerKm / 100000) * 0.3); // Minimum 10% of base value
+    const sellPrice = Math.floor(baseValue * depreciationFactor);
+
+    console.log(`[SELL] ${truck.brand} ${truck.model}`);
+    console.log(`[SELL] Original: €${originalPrice}, Base: €${baseValue}, Odometer: ${odometerKm}km`);
+    console.log(`[SELL] Depreciation factor: ${depreciationFactor.toFixed(2)}, Final: €${sellPrice}`);
 
     // Delete the truck and update user's cash
     await Truck.deleteOne({ _id: truckId });
@@ -179,12 +179,104 @@ router.post('/:truckId/sell', requireAuth, async (req, res) => {
     res.json({ 
       success: true, 
       sellPrice,
-      message: `Sold ${truck.brand} ${truck.model} for €${sellPrice.toLocaleString()}` 
+      originalPrice,
+      odometerKm,
+      depreciationFactor,
+      message: `Sold ${truck.brand} ${truck.model} for €${sellPrice.toLocaleString()} (${odometerKm.toLocaleString()}km driven)` 
     });
 
   } catch (err) {
     console.error('[POST /trucks/:truckId/sell]', err);
     res.status(500).json({ error: 'Failed to sell truck', detail: String(err?.message || err) });
+  }
+});
+
+router.get('/:id/maintenance', requireAuth, async (req, res) => {
+  try {
+    const truck = await Truck.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!truck) return res.status(404).json({ error: 'Truck not found' });
+
+    const odometerKm = truck.odometerKm || 0;
+    const lastOilChangeKm = truck.lastOilChangeKm || 0;
+    const kmSinceOilChange = odometerKm - lastOilChangeKm;
+    
+    res.json({
+      odometerKm,
+      lastOilChangeKm,
+      kmSinceOilChange,
+      oilChangeOverdue: kmSinceOilChange >= 40000,
+      wear: truck.wear || 0,
+      records: truck.maintenanceRecords || [],
+      costs: {
+        basicMaintenance: 500,
+        oilChange: 200,
+        majorService: 1500
+      }
+    });
+  } catch (err) {
+    console.error('[GET /trucks/:id/maintenance]', err);
+    res.status(500).json({ error: 'Failed to get maintenance data' });
+  }
+});
+
+router.post('/:id/maintenance', requireAuth, async (req, res) => {
+  try {
+    const { type } = req.body;
+    const truck = await Truck.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!truck) return res.status(404).json({ error: 'Truck not found' });
+
+    const profile = await Profile.findOne({ userId: req.user._id });
+    if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+    let cost = 0;
+    let message = '';
+    const now = new Date();
+
+    switch (type) {
+      case 'oil_change':
+        cost = 200;
+        if (profile.cash < cost) return res.status(400).json({ error: 'Insufficient funds' });
+        truck.lastOilChangeKm = truck.odometerKm || 0;
+        message = 'Oil change completed';
+        break;
+        
+      case 'basic':
+        cost = 500;
+        if (profile.cash < cost) return res.status(400).json({ error: 'Insufficient funds' });
+        truck.wear = Math.max(0, (truck.wear || 0) - 0.1); // Reduce wear by 10%
+        message = 'Basic maintenance completed';
+        break;
+        
+      case 'major':
+        cost = 1500;
+        if (profile.cash < cost) return res.status(400).json({ error: 'Insufficient funds' });
+        truck.wear = Math.max(0, (truck.wear || 0) - 0.3); // Reduce wear by 30%
+        truck.lastOilChangeKm = truck.odometerKm || 0;
+        message = 'Major service completed';
+        break;
+        
+      default:
+        return res.status(400).json({ error: 'Invalid maintenance type' });
+    }
+
+    // Add maintenance record
+    if (!truck.maintenanceRecords) truck.maintenanceRecords = [];
+    truck.maintenanceRecords.push({
+      type,
+      date: now,
+      cost,
+      odometerKm: truck.odometerKm || 0
+    });
+
+    // Deduct cost
+    profile.cash -= cost;
+
+    await truck.save();
+    await profile.save();
+
+    res.json({ message: `${message}. Cost: €${cost}`, cost });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 });
 

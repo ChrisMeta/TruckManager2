@@ -86,3 +86,33 @@ export function startGameLoop(io){
     }
   }, TICK_MS);
 }
+
+// Add this function to update truck odometer and wear
+async function updateTruckProgress(assignment, contract, truck) {
+  const totalDistanceKm = contract.distanceKm || 0;
+  const progressDelta = 0.01; // 1% progress per tick
+  
+  // Calculate distance traveled this tick
+  const distanceTraveledThisTick = totalDistanceKm * progressDelta;
+  
+  // Update odometer
+  truck.odometerKm = (truck.odometerKm || 0) + distanceTraveledThisTick;
+  
+  // Check if oil change is overdue
+  const kmSinceOilChange = truck.odometerKm - (truck.lastOilChangeKm || 0);
+  const needsOilChange = kmSinceOilChange >= 40000;
+  
+  // Calculate wear with oil change penalty
+  const baseWearPerKm = 0.00002; // 0.002% wear per km = 10% per 5000km
+  const wearMultiplier = needsOilChange ? 10 : 1; // 10x wear if oil change overdue
+  const wearIncrease = distanceTraveledThisTick * baseWearPerKm * wearMultiplier;
+  
+  truck.wear = Math.min(1, (truck.wear || 0) + wearIncrease);
+  
+  // Update assignment progress
+  assignment.progress = Math.min(1, assignment.progress + progressDelta);
+  
+  await truck.save();
+  
+  return { distanceTraveledThisTick, wearIncrease, needsOilChange };
+}

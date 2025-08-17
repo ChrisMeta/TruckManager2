@@ -1,12 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { API_BASE, api } from './api/client';
 import MapView from './components/MapView';
-import Headquarter from './components/tabs/Headquarter';
-import Shop from './components/tabs/Shop';
+import Headquarter from './components/tabs/Headquarter.jsx';
+import Shop from './components/tabs/Shop.jsx';
 import Garage from './components/tabs/Garage';
 import Contracts from './components/tabs/Contracts';
 import Store from './components/tabs/Store';
+import Fleet from './components/panels/Fleet.jsx';
 import LoginForm from './components/auth/LoginForm';
 import RegisterForm from './components/auth/RegisterForm';
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
@@ -25,10 +26,83 @@ function AppContent() {
   const { t, language, setLanguage } = useLanguage();
   const [user, setUser] = useState(null);
   const [state, setState] = useState({ profile:null, trucks:[], assignments:[], contracts:[], stations:[] });
-  const [tab, setTab] = useState('headquarter');
+  const [activeTab, setActiveTab] = useState('headquarter');
   const [loading, setLoading] = useState(true);
   const [previewRoute, setPreviewRoute] = useState(null); // [{lat,lng},...]
   const [placingHQ, setPlacingHQ] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(320); // Default width in pixels
+  const [isResizing, setIsResizing] = useState(false);
+  
+  const resizeRef = useRef(null);
+  const panelRef = useRef(null);
+
+  // Check if device is mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      const isMobileDevice = window.innerWidth <= 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      setIsMobile(isMobileDevice);
+      
+      // Reset panel width on mobile
+      if (isMobileDevice) {
+        setPanelWidth(320);
+      }
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Handle panel resizing
+  const handleMouseDown = useCallback((e) => {
+    if (isMobile) return;
+    
+    setIsResizing(true);
+    e.preventDefault();
+    
+    const startX = e.clientX;
+    const startWidth = panelWidth;
+    
+    const handleMouseMove = (e) => {
+      const deltaX = startX - e.clientX; // Reverse direction since we're resizing from the left edge
+      const newWidth = Math.max(250, Math.min(600, startWidth + deltaX)); // Min 250px, max 600px
+      
+      // Don't let panel exceed 80% of screen width
+      const maxWidth = window.innerWidth * 0.8;
+      setPanelWidth(Math.min(newWidth, maxWidth));
+    };
+    
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [isMobile, panelWidth]);
+
+  // Prevent text selection while resizing
+  useEffect(() => {
+    if (isResizing) {
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'ew-resize';
+    } else {
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    }
+    
+    return () => {
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    };
+  }, [isResizing]);
+
+  const toggleMobileMenu = () => {
+    setIsMobileMenuOpen(!isMobileMenuOpen);
+  };
 
   async function refresh(){
     try{
@@ -86,61 +160,144 @@ function AppContent() {
   }
 
   return (
-    <div className="h-screen w-screen grid grid-cols-12">
-      <div className="col-span-8 relative">
-        <MapView state={state} previewRoute={previewRoute} placingHQ={placingHQ} onSetHQ={handleSetHQ} />
-      </div>
-      <div className="col-span-4 p-3 space-y-3 overflow-y-auto">
-        <div className="card">
-          <div className="flex justify-between items-center mb-3">
-            <div className="flex gap-2">
-              {TABS.map(tabKey => (
-                <button key={tabKey} className={`tab ${tab===tabKey?'tab-active':''}`} onClick={()=>setTab(tabKey)}>
-                  {t(tabKey)}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-1">
-              <button 
-                className={`btn btn-sm ${language === 'en' ? 'bg-white/10' : ''}`} 
-                onClick={() => setLanguage('en')}
-              >
-                EN
-              </button>
-              <button 
-                className={`btn btn-sm ${language === 'de' ? 'bg-white/10' : ''}`} 
-                onClick={() => setLanguage('de')}
-              >
-                DE
-              </button>
-            </div>
-          </div>
+    <div className="h-screen w-screen overflow-hidden relative">
+      {/* Mobile Menu Toggle Button - Only show when menu is closed */}
+      {isMobile && !isMobileMenuOpen && (
+        <button
+          onClick={toggleMobileMenu}
+          className="fixed top-4 right-4 z-[9999] btn btn-primary shadow-lg"
+          aria-label="Toggle menu"
+        >
+          ☰
+        </button>
+      )}
+
+      {/* Main Content Area */}
+      <div className="h-full w-full flex">
+        {/* Map/Main Content */}
+        <div 
+          className={`flex-1 ${isMobile && isMobileMenuOpen ? 'hidden' : 'block'}`}
+          style={!isMobile ? { width: `calc(100% - ${panelWidth}px)` } : {}}
+        >
+          <MapView state={state} previewRoute={previewRoute} placingHQ={placingHQ} onSetHQ={handleSetHQ} />
         </div>
 
-        {tab === 'headquarter' && (
-          <div className="card">
-            <Headquarter
-              state={state}
-              placingHQ={placingHQ}
-              onPlaceToggle={() => setPlacingHQ(v => !v)}
-              onRefresh={refresh}
-              onPreview={setPreviewRoute}
-            />
+        {/* Side Panel */}
+        <div 
+          ref={panelRef}
+          className={`
+            ${isMobile 
+              ? `fixed inset-0 z-40 bg-gray-900 ${isMobileMenuOpen ? 'block' : 'hidden'}`
+              : 'relative'
+            }
+            flex flex-col border-l border-white/10 bg-gray-900
+          `}
+          style={!isMobile ? { width: `${panelWidth}px`, minWidth: `${panelWidth}px` } : {}}
+        >
+          {/* Resize Handle - Desktop Only */}
+          {!isMobile && (
+            <div
+              ref={resizeRef}
+              className={`
+                absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize z-10
+                hover:bg-accent/50 transition-colors
+                ${isResizing ? 'bg-accent' : 'bg-transparent'}
+              `}
+              onMouseDown={handleMouseDown}
+              title="Drag to resize panel"
+            >
+              {/* Visual indicator */}
+              <div className="absolute left-0 top-1/2 transform -translate-y-1/2 w-1 h-8 bg-white/20 rounded-r"></div>
+            </div>
+          )}
+
+          {/* Tab Navigation */}
+          <div className={`
+            flex items-center border-b border-white/10 bg-gray-800/50 p-2
+            ${isMobile ? 'gap-0.5' : 'gap-1 overflow-x-auto'}
+          `}>
+            {TABS.map(tab => {
+              const displayName = t(tab);
+              
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`
+                    tab whitespace-nowrap capitalize
+                    ${activeTab === tab ? 'tab-active' : ''}
+                    ${isMobile 
+                      ? 'flex-1 min-w-0 px-1.5 py-1.5 text-xs overflow-hidden text-ellipsis' 
+                      : 'px-3 py-2 text-sm'
+                    }
+                  `}
+                  title={isMobile && displayName.length > 8 ? displayName : undefined}
+                >
+                  {displayName}
+                </button>
+              );
+            })}
           </div>
-        )}
-        {tab === 'shop' && <div className="card"><Shop state={state} onBought={async()=>{ setPreviewRoute(null); await refresh(); }} /></div>}
-        {tab === 'garage' && <div className="card"><Garage state={state} onChanged={async()=>{ await refresh(); }} /></div>}
-        {tab === 'contracts' && (
-          <div className="card">
-            <Contracts
-              state={state}
-              onChanged={async()=>{ await refresh(); }}
-              onPreview={setPreviewRoute}
-            />
+
+          {/* Tab Content */}
+          <div className={`
+            flex-1 overflow-y-auto p-4
+            ${isMobile ? 'pb-16' : ''}
+          `}>
+            {activeTab === 'headquarter' && (
+              <div className="card">
+                <Headquarter
+                  state={state}
+                  placingHQ={placingHQ}
+                  onPlaceToggle={() => setPlacingHQ(v => !v)}
+                  onRefresh={refresh}
+                  onPreview={setPreviewRoute}
+                />
+              </div>
+            )}
+            {activeTab === 'shop' && <div className="card"><Shop state={state} onBought={async()=>{ setPreviewRoute(null); await refresh(); }} /></div>}
+            {activeTab === 'garage' && <div className="card"><Fleet state={state} onChanged={async()=>{ await refresh(); }} /></div>}
+            {activeTab === 'contracts' && (
+              <div className="card">
+                <Contracts
+                  state={state}
+                  onChanged={async()=>{ await refresh(); }}
+                  onPreview={setPreviewRoute}
+                />
+              </div>
+            )}
+            {activeTab === 'store' && <div className="card"><Store state={state} onChanged={refresh} /></div>}
           </div>
-        )}
-        {tab === 'store' && <div className="card"><Store state={state} onChanged={refresh} /></div>}
+
+          {/* Mobile Close Button - Bottom floating */}
+          {isMobile && isMobileMenuOpen && (
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-50">
+              <button
+                onClick={toggleMobileMenu}
+                className="btn btn-primary shadow-lg px-4 py-2"
+                aria-label="Close menu"
+              >
+                {t('close')} ✕
+              </button>
+            </div>
+          )}
+
+          {/* Panel Width Indicator - Desktop Only */}
+          {!isMobile && isResizing && (
+            <div className="absolute bottom-4 left-4 bg-black/80 text-white text-xs px-2 py-1 rounded pointer-events-none">
+              {panelWidth}px
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Mobile Overlay Background */}
+      {isMobile && isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30"
+          onClick={toggleMobileMenu}
+        />
+      )}
     </div>
   );
 }

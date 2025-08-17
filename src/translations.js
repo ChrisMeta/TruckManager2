@@ -1,7 +1,7 @@
 export const translations = {
   en: {
     // Navigation
-    headquarter: 'Headquarter',
+    headquarter: 'HQ',
     shop: 'Shop',
     garage: 'Garage',
     contracts: 'Contracts',
@@ -119,7 +119,7 @@ save: 'Save',
   },
   de: {
     // Navigation
-    headquarter: 'Hauptquartier',
+    headquarter: 'HQ',
     shop: 'Laden',
     garage: 'Werkstatt',
     contracts: 'Verträge',

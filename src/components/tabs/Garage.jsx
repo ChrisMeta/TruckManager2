@@ -1,0 +1,141 @@
+import React, { useState, useEffect } from 'react';
+import { api } from '../../api/client';
+
+const SUBTABS = ['Performance','Chassis','Cargo','Tyres/Gearbox'];
+
+export default function Garage({ state, onChanged }){
+  const [open, setOpen] = useState(null); // truckId editing
+  const [tab, setTab] = useState('Performance');
+  const [opts, setOpts] = useState(null);
+  const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [lastCost, setLastCost] = useState(null);
+
+  async function loadOptions(truckId){
+    setError(''); setOpts(null); setLastCost(null);
+    try{
+      const { data } = await api.get(`/trucks/${truckId}/options`);
+      setOpts(data);
+      setForm(data.current);
+    }catch(e){
+      setError(e.response?.data?.error || e.message);
+    }
+  }
+
+  function startEdit(t){
+    setOpen(t._id);
+    setTab('Performance');
+    loadOptions(t._id);
+  }
+  function update(k, v){ setForm(prev => ({ ...prev, [k]: v })); }
+
+  function estimateCost(prev){
+    if (!opts) return 0;
+    const cur = form, old = opts.current;
+    let cost = 0;
+    if (cur.engineId !== old.engineId) cost += 8000;
+    if (cur.induction !== old.induction) cost += (cur.induction==='turbo'?2500:cur.induction==='supercharger'?3000:1500);
+    if (cur.wheelbase !== old.wheelbase) cost += ({standard:1200, extended:1600, extra_long:2000}[cur.wheelbase] || 1500);
+    if (cur.body !== old.body) cost += 2500;
+    if (cur.gearbox !== old.gearbox) cost += (cur.gearbox==='long'?1600:cur.gearbox==='close'?1400:1200);
+    if (cur.tire !== old.tire) cost += (cur.tire==='sport'?900:cur.tire==='eco'?700:600);
+    return cost;
+  }
+
+  async function save(truckId){
+    setSaving(true); setError(''); setLastCost(null);
+    try{
+      const { data } = await api.post(`/trucks/${truckId}/config`, form);
+      setLastCost(data.cost);
+      setOpen(null);
+      await onChanged();
+    }catch(e){
+      setError(e.response?.data?.error || e.message);
+    }finally{ setSaving(false); }
+  }
+
+  return (
+    <div className="space-y-2">
+      {state?.trucks?.map(t => (
+        <div key={t._id} className="border border-white/10 rounded-xl p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-medium">{t.brand} {t.model} <span className="text-xs text-gray-400">({t.category})</span></div>
+              <div className="text-sm text-gray-400">
+                Engine {t.config?.engineLabel || `${t.enginePowerKw}kW`} • Induction {t.config?.induction || '-'} • WB {t.config?.wheelbase || '-'} • Body {t.config?.body || '-'}
+              </div>
+              <div className="text-sm text-gray-400">
+                Power {t.enginePowerKw}kW | Speed {t.speedKph} km/h | Empty {t.emptyWeightKg||'-'} kg | Cargo {t.cargoVolumeM3||'-'} m³
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button className="btn" onClick={()=>startEdit(t)}>Modify</button>
+            </div>
+          </div>
+
+          {open === t._id && (
+            <div className="mt-3 border-t border-white/10 pt-3">
+              {!opts ? <div className="text-sm text-gray-400">Loading options…</div> : (
+                <>
+                  <div className="flex gap-2 mb-3">
+                    {SUBTABS.map(s => <button key={s} className={`tab ${tab===s?'tab-active':''}`} onClick={()=>setTab(s)}>{s}</button>)}
+                  </div>
+
+                  {error && <div className="text-red-400 text-sm mb-2">{error}</div>}
+
+                  {tab==='Performance' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <Select label="Engine" value={form.engineId} onChange={v=>update('engineId', v)} options={opts.options.engine.map(o=>[o.id, o.label])} />
+                      <Select label="Induction" value={form.induction} onChange={v=>update('induction', v)} options={opts.options.induction.map(o=>[o.id, o.label])} />
+                    </div>
+                  )}
+
+                  {tab==='Chassis' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <Select label="Wheelbase" value={form.wheelbase} onChange={v=>update('wheelbase', v)} options={opts.options.wheelbase.map(o=>[o.id, o.label])} />
+                    </div>
+                  )}
+
+                  {tab==='Cargo' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <Select label="Body" value={form.body} onChange={v=>update('body', v)} options={opts.options.body.map(o=>[o.id, o.label])} />
+                    </div>
+                  )}
+
+                  {tab==='Tyres/Gearbox' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <Select label="Gearbox" value={form.gearbox} onChange={v=>update('gearbox', v)} options={opts.options.gearbox.map(o=>[o.id, o.label])} />
+                      <Select label="Tyre" value={form.tire} onChange={v=>update('tire', v)} options={opts.options.tire.map(o=>[o.id, o.label])} />
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex items-center justify-between">
+                    <div className="text-sm text-gray-300">Estimated cost: €{estimateCost().toLocaleString()}</div>
+                    <div className="flex gap-2">
+                      <button className="btn" onClick={()=>{ setOpen(null); }}>Cancel</button>
+                      <button className="btn btn-primary" onClick={()=>save(t._id)} disabled={saving}>{saving?'Saving…':'Save'}</button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+      {(state?.trucks?.length||0)===0 && <div className="text-sm text-gray-400">No trucks yet. Buy one in the Shop.</div>}
+      {lastCost!=null && <div className="text-sm text-green-400">Last modification cost: €{lastCost.toLocaleString()}</div>}
+    </div>
+  );
+}
+
+function Select({ label, value, onChange, options }){
+  return (
+    <label className="text-sm">
+      <div className="mb-1">{label}</div>
+      <select className="input" value={value} onChange={e=>onChange(e.target.value)}>
+        {options.map(([v,lab]) => <option key={v} value={v}>{lab}</option>)}
+      </select>
+    </label>
+  );
+}

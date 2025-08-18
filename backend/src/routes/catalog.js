@@ -1,5 +1,10 @@
 import express from 'express';
-import { requireAuth } from '../config/passport.js';const catalog = [
+import { requireAuth } from '../config/passport.js';
+import { defaultCapabilities } from '../services/derive.js';
+
+const router = express.Router();
+
+const catalog = [
   // BUDGET BRANDS
 
   // ROADMASTER - Budget Brand #1 (Basic, reliable, affordable)
@@ -84,6 +89,10 @@ import { requireAuth } from '../config/passport.js';const catalog = [
     capabilities: (()=>{ const c=defaultCapabilities('semi'); c.engineIds=['semi_v8_16_0_diesel','semi_v12_18_0_diesel']; c.induction=['turbo','supercharger']; c.wheelbase=['standard','extended','extra_long']; return c; })()
   },
 ];
+
+export function findCatalogItem(brand, model) {
+  return catalog.find(item => item.brand === brand && item.model === model);
+}
 
 router.get('/', (req, res) => {
   res.json(catalog);

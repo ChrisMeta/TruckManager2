@@ -48,12 +48,12 @@ router.post('/buy', requireAuth, async (req, res) => {
     
     // Get user's HQ location for default truck placement
     const hqStation = await Station.findOne({ userId: req.user._id, type: 'hq' });
-    const defaultLocation = hqStation ? 
-      { lat: hqStation.lat, lng: hqStation.lng } : // Fixed: direct access to lat/lng
-      { lat: 52.5200, lng: 13.4050 };
+    const defaultLocation = hqStation && hqStation.location ? 
+      { lat: hqStation.location.lat, lng: hqStation.location.lng } : // Fixed: access nested location object
+      { lat: 52.5200, lng: 13.4050 }; // Default to Berlin if no HQ found
     
     const truck = new Truck({
-      userId: req.user._id, // Fixed: consistent _id usage
+      userId: req.user._id,
       brand,
       model,
       category,
@@ -76,6 +76,7 @@ router.post('/buy', requireAuth, async (req, res) => {
     await truck.save();
     res.json({ message: 'Truck purchased successfully', truck });
   } catch (error) {
+    console.error('[POST /trucks/buy] Error:', error);
     res.status(400).json({ error: error.message });
   }
 });

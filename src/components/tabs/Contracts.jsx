@@ -112,14 +112,34 @@ export default function Contracts({ state, onChanged, onPreview }){
                 </div>
                 <div className="flex gap-2">
                   <button className="btn" onClick={() => previewRoute(c._id)}>{t('preview')}</button>
-                  <select className="btn" onChange={(e) => e.target.value && assignContract(c._id, e.target.value)}>
-                    <option value="">{t('assign')}</option>
-                    {state?.trucks?.filter(t => t.status === 'idle').map(t => (
-                      <option key={t._id} value={t._id}>{t.brand} {t.model}</option>
-                    ))}
-                  </select>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={() => setOpenRow(openRow === c._id ? null : c._id)}
+                  >
+                    {t('assign')}
+                  </button>
                 </div>
               </div>
+              {openRow === c._id && (
+                <div className="mt-3 pt-3 border-t border-white/10">
+                  <div className="text-sm text-gray-300 mb-2">{t('selectTruck')}:</div>
+                  <div className="space-y-2">
+                    {state?.trucks?.filter(t => t.status === 'idle').map(t => (
+                      <button
+                        key={t._id}
+                        className="btn w-full text-left"
+                        onClick={() => accept(c._id, t._id)}
+                        disabled={loading}
+                      >
+                        {t.brand} {t.model}
+                      </button>
+                    ))}
+                    {state?.trucks?.filter(t => t.status === 'idle').length === 0 && (
+                      <div className="text-sm text-gray-400">{t('noIdleTrucks')}</div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           ))}
           {openContracts.length === 0 && <div className="text-sm text-gray-400">{t('noOpenContracts')}</div>}
@@ -131,13 +151,30 @@ export default function Contracts({ state, onChanged, onPreview }){
           {activeAssignments.map(a => {
             const contract = state?.contracts?.find(c => c._id === a.contractId);
             const truck = state?.trucks?.find(t => t._id === a.truckId);
+            const kmLeft = contract ? Math.ceil(contract.distanceKm * (1 - a.progress)) : 0;
+            const gemCost = Math.max(1, Math.ceil(kmLeft / 50));
+            
             return (
               <div key={a._id} className="border border-white/10 rounded-xl p-3">
-                <div className="font-medium">{contract?.origin?.name} → {contract?.destination?.name}</div>
-                <div className="text-sm text-gray-400">{t('truck')}: {truck?.brand} {truck?.model}</div>
-                <div className="text-sm text-gray-300">{t('progress')}: {(a.progress * 100).toFixed(1)}%</div>
-                <div className="w-full bg-gray-700 rounded-full h-2 mt-2">
-                  <div className="bg-blue-600 h-2 rounded-full" style={{width: `${a.progress * 100}%`}}></div>
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <div className="font-medium">{contract?.origin?.name} → {contract?.destination?.name}</div>
+                    <div className="text-sm text-gray-400">{t('truck')}: {truck?.brand} {truck?.model}</div>
+                    <div className="text-sm text-gray-300">{t('progress')}: {(a.progress * 100).toFixed(1)}%</div>
+                    <div className="w-full bg-gray-700 rounded-full h-2 mt-2">
+                      <div className="bg-blue-600 h-2 rounded-full" style={{width: `${a.progress * 100}%`}}></div>
+                    </div>
+                  </div>
+                  <div className="ml-3 text-right">
+                    <div className="text-xs text-gray-400 mb-1">{gemCost}★</div>
+                    <button 
+                      className="btn btn-primary" 
+                      onClick={() => instantComplete(contract)}
+                      disabled={loading}
+                    >
+                      {t('instantComplete')}
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -150,9 +187,22 @@ export default function Contracts({ state, onChanged, onPreview }){
         <div className="space-y-2">
           {completedContracts.map(c => (
             <div key={c._id} className="border border-white/10 rounded-xl p-3">
-              <div className="font-medium">{c.origin?.name} → {c.destination?.name}</div>
-              <div className="text-sm text-gray-400">{t('cargo')}: {c.cargoType} • {t('reward')}: €{c.payout?.toLocaleString()}</div>
-              <div className="text-sm text-green-400">{t('status')}: {c.status}</div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">{c.origin?.name} → {c.destination?.name}</div>
+                  <div className="text-sm text-gray-400">{t('cargo')}: {c.cargoType} • {t('reward')}: €{c.payout?.toLocaleString()}</div>
+                  <div className="text-sm text-green-400">{t('status')}: {c.status}</div>
+                </div>
+                {!c.paid && (
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={() => collect(c._id)}
+                    disabled={loading}
+                  >
+                    {t('collectMoney')}
+                  </button>
+                )}
+              </div>
             </div>
           ))}
           {completedContracts.length === 0 && <div className="text-sm text-gray-400">{t('noCompletedContracts')}</div>}

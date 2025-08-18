@@ -256,7 +256,7 @@ function AppContent() {
               </div>
             )}
             {activeTab === 'shop' && <div className="card"><Shop state={state} onBought={async()=>{ setPreviewRoute(null); await refresh(); }} /></div>}
-            {activeTab === 'garage' && <div className="card"><Fleet state={state} onChanged={async()=>{ await refresh(); }} /></div>}
+            {activeTab === 'garage' && <div className="card"><Garage state={state} onChanged={async()=>{ await refresh(); }} /></div>}
             {activeTab === 'contracts' && (
               <div className="card">
                 <Contracts

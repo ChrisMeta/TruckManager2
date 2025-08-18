@@ -7,9 +7,15 @@ const SUBTABS = ['performance', 'chassis', 'cargo', 'tyresGearbox', 'maintenance
 function Select({ label, value, onChange, options }){
   return (
     <div>
-      <label className="text-sm text-gray-400">{label}</label>
-      <select className="input" value={value} onChange={e=>onChange(e.target.value)}>
-        {options.map(([val, lbl]) => <option key={val} value={val}>{lbl}</option>)}
+      <label className="block text-sm font-medium mb-1">{label}</label>
+      <select 
+        value={value || ''} 
+        onChange={e => onChange(e.target.value)}
+        className="w-full p-2 bg-gray-800 border border-white/10 rounded text-white"
+      >
+        {options.map(([val, label]) => (
+          <option key={val} value={val}>{label}</option>
+        ))}
       </select>
     </div>
   );
